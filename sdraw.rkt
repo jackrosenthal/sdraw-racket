@@ -20,13 +20,16 @@
 (define arrow-head-size (make-parameter 15))
 (define arrow-point-size (make-parameter 15))
 (define object-padding (make-parameter 2))
-(define text-scale (make-parameter 1.5))
+(define text-scale (make-parameter 2.0))
 (define cell-inside-size (make-parameter 30))
 (define cell-inside-radius (make-parameter 3))
 (define cell-border-radius (make-parameter 3))
 (define cell-border-width (make-parameter 4))
 (define vertical-spacing (make-parameter 50))
 (define horizontal-spacing (make-parameter 80))
+(define etc-pict (make-parameter (text "etc." '() 24)))
+(define max-depth (make-parameter +inf.0))
+(define max-width (make-parameter +inf.0))
 
 (define (cons-part)
   (cc-superimpose
@@ -39,8 +42,11 @@
                    #:draw-border? #f)))
 
 ;; returns (values pict car-attach cdr-attach)
-(define (sdraw-rec obj)
+(define (sdraw-rec obj depth width)
   (cond
+    [(or (> depth (max-depth))
+         (> width (max-width)))
+     (sdraw-rec (etc-pict) 0 0)]
     [(pair? obj)
      (let*-values ([(car-part) (cons-part)]
                    [(cdr-part) (cons-part)]
@@ -60,8 +66,12 @@
                                      (* 2 (cell-border-width)))
                                   #:mode 'distort)
                                  cell-inner)]
-                   [(car-drawn car-attach _1) (sdraw-rec (car obj))]
-                   [(cdr-drawn _2 cdr-attach) (sdraw-rec (cdr obj))]
+                   [(car-drawn car-attach _1) (sdraw-rec (car obj)
+                                                         (add1 depth)
+                                                         width)]
+                   [(cdr-drawn _2 cdr-attach) (sdraw-rec (cdr obj)
+                                                         depth
+                                                         (add1 width))]
                    [(attach-x _3) (rb-find car-drawn car-attach)]
                    [(_4 attach-y) (rb-find cdr-drawn cdr-attach)]
                    [(car-point-x car-point-y) (cc-find cell-body car-part)]
@@ -108,11 +118,12 @@
                                       (ht-append cdr-attach padded))
                            car-attach cdr-attach))]
     [else (sdraw-rec (scale (typeset-code (datum->syntax #f obj))
-                            (text-scale)))]))
+                            (text-scale))
+                     0 0)]))
 
 (define (sdraw obj)
   (let ([datum (if (syntax? obj)
                    (syntax->datum obj)
                    obj)])
-    (let-values ([(pict _1 _2) (sdraw-rec datum)])
+    (let-values ([(pict _1 _2) (sdraw-rec datum 0 0)])
       pict)))
