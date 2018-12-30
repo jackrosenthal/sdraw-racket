@@ -16,23 +16,22 @@
 (require pict/color)
 (provide sdraw)
 
-(define default-etc-pict (text "etc." '() 24))
+(define default-etc-pict (text "etc."))
 
 (define/contract (sdraw obj
                         #:cell-border-color [cell-border-color "Black"]
                         #:cell-inside-color [cell-inside-color "White"]
                         #:arrow-color [arrow-color "Black"]
-                        #:arrow-thickness [arrow-thickness 5]
-                        #:arrow-head-size [arrow-head-size 15]
-                        #:arrow-point-size [arrow-point-size 15]
-                        #:object-padding [object-padding 2]
-                        #:text-scale [text-scale 2.0]
-                        #:cell-inside-size [cell-inside-size 30]
-                        #:cell-inside-radius [cell-inside-radius 3]
-                        #:cell-border-radius [cell-border-radius 3]
-                        #:cell-border-width [cell-border-width 4]
-                        #:vertical-spacing [vertical-spacing 50]
-                        #:horizontal-spacing [horizontal-spacing 80]
+                        #:arrow-thickness [arrow-thickness 2.5]
+                        #:arrow-head-size [arrow-head-size 7.5]
+                        #:arrow-point-size [arrow-point-size 7.5]
+                        #:object-padding [object-padding 1]
+                        #:cell-inside-size [cell-inside-size 15]
+                        #:cell-inside-radius [cell-inside-radius 1.5]
+                        #:cell-border-radius [cell-border-radius 1.5]
+                        #:cell-border-width [cell-border-width 2]
+                        #:vertical-spacing [vertical-spacing 25]
+                        #:horizontal-spacing [horizontal-spacing 40]
                         #:etc-pict [etc-pict default-etc-pict]
                         #:max-depth [max-depth +inf.0]
                         #:max-width [max-width +inf.0])
@@ -44,7 +43,6 @@
         #:arrow-head-size real?
         #:arrow-point-size real?
         #:object-padding real?
-        #:text-scale real?
         #:cell-inside-size real?
         #:cell-inside-radius real?
         #:cell-border-radius real?
@@ -139,9 +137,7 @@
          (values (vl-append car-attach
                             (ht-append cdr-attach padded))
                  car-attach cdr-attach))]
-      [else (rec (scale (typeset-code (datum->syntax #f obj))
-                        text-scale)
-                 0 0)]))
+      [else (rec (typeset-code (datum->syntax #f obj)) 0 0)]))
   (let-values ([(pict _1 _2) (rec (if (syntax? obj)
                                       (syntax->datum obj)
                                       obj)
