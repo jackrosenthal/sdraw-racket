@@ -9,14 +9,28 @@
 ;; This program is licensed under the MIT License. You should have
 ;; received a file "LICENSE" with this program explaining the details.
 
+(require racket/list)
 (require racket/contract)
+(require racket/function)
 (require pict)
 (require pict/code)
 (require pict/convert)
 (require pict/color)
 (provide sdraw)
 
+(define-syntax sequence
+  (syntax-rules ()
+    [(_ name body0 body ...)
+     (let ([name (let ([result body0])
+                   (if (void? result)
+                       name
+                       result))])
+       (sequence name body ...))]
+    [(_ name)
+     name]))
+
 (define default-etc-pict (text "etc."))
+(define default-null-pict (typeset-code #'()))
 
 (define/contract (sdraw obj
                         #:cell-border-color [cell-border-color "Black"]
@@ -33,6 +47,8 @@
                         #:vertical-spacing [vertical-spacing 25]
                         #:horizontal-spacing [horizontal-spacing 40]
                         #:etc-pict [etc-pict default-etc-pict]
+                        #:null-style [null-style default-null-pict]
+                        #:null-thickness [null-thickness 2.5]
                         #:max-depth [max-depth +inf.0]
                         #:max-width [max-width +inf.0])
   (->* (any/c)
@@ -49,97 +65,148 @@
         #:cell-border-width real?
         #:vertical-spacing real?
         #:horizontal-spacing real?
-        #:etc-pict pict?
+        #:etc-pict pict-convertible?
+        #:null-style (or/c pict-convertible? '/ '|\| 'x)
+        #:null-thickness real?
         #:max-depth (or/c +inf.0 natural-number/c)
         #:max-width (or/c +inf.0 natural-number/c))
        pict?)
+
   (define (cons-part)
-    (cc-superimpose
-     (filled-rounded-rectangle cell-inside-size cell-inside-size
-                               cell-inside-radius
-                               #:color cell-inside-color
-                               #:draw-border? #f)
-     (filled-ellipse arrow-point-size arrow-point-size
-                     #:color arrow-color
-                     #:draw-border? #f)))
+    (filled-rounded-rectangle cell-inside-size cell-inside-size
+                              cell-inside-radius
+                              #:color cell-inside-color
+                              #:draw-border? #f))
+
+  (define inset-fcns
+    (cons (λ (pict value) (inset pict (max 0 value) 0 0 0))
+          (λ (pict value) (inset pict 0 (max 0 value) 0 0))))
+
+  (define (arrow pict from to)
+    (sequence pict
+              (pin-over pict
+                        from
+                        lt-find
+                        (cc-superimpose (blank (pict-width from)
+                                               (pict-height from))
+                                        (filled-ellipse arrow-point-size
+                                                        arrow-point-size
+                                                        #:color arrow-color
+                                                        #:draw-border? #f)))
+              (pin-arrow-line arrow-head-size
+                              pict
+                              from cc-find
+                              to rb-find
+                              #:line-width arrow-thickness
+                              #:color arrow-color)))
+
+  (define attach-box-tbl (make-hasheq))
+
+  ;; add blank boxes to a pict which can be used to determine where to attach
+  ;; arrows for the car/cdr
+  (define (make-attach-boxes! pict right down)
+    (let* ([car-box (blank right 0)]
+           [cdr-box (blank 0 down)]
+           [consed-boxes (cons car-box cdr-box)]
+           [with-boxes (vl-append car-box (ht-append cdr-box pict))])
+      (hash-set! attach-box-tbl pict consed-boxes)
+      (hash-set! attach-box-tbl with-boxes consed-boxes)
+      with-boxes))
+
+  (define (attach-boxes pict)
+    (hash-ref attach-box-tbl pict))
+
+  (define (attach-box-offset pict attach-pict)
+    (let-values ([(x y) (rb-find pict attach-pict)])
+      (max x y)))
+
+  (define spaced-append-fcns
+    (cons (curry vl-append vertical-spacing)
+          (curry ht-append horizontal-spacing)))
+
   (define (rec obj depth width)
     (cond
-      [(or (> depth max-depth)
-           (> width max-width))
-       (rec etc-pict 0 0)]
+      [(null? obj)
+       ;; in the case of (sdraw '() #:null-style '/), or similar
+       (rec (if (pict-convertible? null-style)
+                null-style
+                default-null-pict)
+            0 0)]
       [(pair? obj)
-       (let*-values ([(car-part) (cons-part)]
-                     [(cdr-part) (cons-part)]
-                     [(cell-inner) (hc-append cell-border-width
-                                              car-part cdr-part)]
-                     [(cell-body) (cc-superimpose
-                                   (scale-to-fit
-                                    (filled-rounded-rectangle
-                                     (pict-width cell-inner)
-                                     (pict-height cell-inner)
-                                     cell-border-radius
-                                     #:draw-border? #f
-                                     #:color cell-border-color)
-                                    (+ (pict-width cell-inner)
-                                       (* 2 cell-border-width))
-                                    (+ (pict-height cell-inner)
-                                       (* 2 cell-border-width))
-                                    #:mode 'distort)
-                                   cell-inner)]
-                     [(car-drawn car-attach _1) (rec (car obj)
-                                                     (add1 depth)
-                                                     width)]
-                     [(cdr-drawn _2 cdr-attach) (rec (cdr obj)
-                                                     depth
-                                                     (add1 width))]
-                     [(attach-x _3) (rb-find car-drawn car-attach)]
-                     [(_4 attach-y) (rb-find cdr-drawn cdr-attach)]
-                     [(car-point-x car-point-y) (cc-find cell-body car-part)]
-                     [(ima-car-attach) (blank car-point-x 0)]
-                     [(ima-cdr-attach) (blank 0 car-point-y)]
-                     [(body-with-attach) (vl-append ima-car-attach
-                                                    (ht-append ima-cdr-attach
-                                                               cell-body))]
-                     [(cell-x-inset) (max 0 (- attach-x car-point-x))]
-                     [(cell-y-inset) (max 0 (- attach-y car-point-y))]
-                     [(car-x-inset) (max 0 (- car-point-x attach-x))]
-                     [(cdr-y-inset) (max 0 (- car-point-y attach-y))]
-                     [(body-and-car) (vl-append vertical-spacing
-                                                (inset
-                                                 body-with-attach
-                                                 cell-x-inset cell-y-inset 0 0)
-                                                (inset
-                                                 car-drawn
-                                                 car-x-inset 0 0 0))]
-                     [(body-no-arrows) (ht-append horizontal-spacing
-                                                  body-and-car
-                                                  (inset
-                                                   cdr-drawn
-                                                   0 cdr-y-inset 0 0))]
-                     [(picture) (pin-arrow-line
-                                 arrow-head-size
-                                 (pin-arrow-line
-                                  arrow-head-size
-                                  body-no-arrows
-                                  car-part cc-find
-                                  car-attach rb-find
-                                  #:line-width arrow-thickness
-                                  #:color arrow-color)
-                                 cdr-part cc-find
-                                 cdr-attach rb-find
-                                 #:line-width arrow-thickness
-                                 #:color arrow-color)])
-         (values picture ima-car-attach ima-cdr-attach))]
+       (if (or (> depth max-depth)
+               (> width max-width))
+           ;; show etc-pict in the case of maxed width/depth
+           (rec etc-pict 0 0)
+
+           (let* ([parts (cons (cons-part) (cons-part))]
+                  [cell-inner (hc-append cell-border-width
+                                         (car parts) (cdr parts))]
+                  [cell-body (cc-superimpose
+                              (scale-to-fit
+                               (filled-rounded-rectangle
+                                (pict-width cell-inner)
+                                (pict-height cell-inner)
+                                cell-border-radius
+                                #:draw-border? #f
+                                #:color cell-border-color)
+                               (+ (pict-width cell-inner)
+                                  (* 2 cell-border-width))
+                               (+ (pict-height cell-inner)
+                                  (* 2 cell-border-width))
+                               #:mode 'distort)
+                              cell-inner)]
+                  [part-centers (let-values
+                                    ([(x y) (cc-find cell-body (car parts))])
+                                  (cons x y))])
+
+             (define (add-from-rec base side)
+               (if (and (not (pict-convertible? null-style))
+                        (null? (side obj)))
+                   (let ([part (side parts)])
+                     (sequence base
+                               (when (member null-style '(/ x))
+                                 (pin-line base
+                                           part lb-find
+                                           part rt-find
+                                           #:line-width null-thickness))
+                               (when (member null-style '(|\| x))
+                                 (pin-line base
+                                           part lt-find
+                                           part rb-find
+                                           #:line-width null-thickness))))
+                   (let* ([pict (rec (side obj)
+                                     (side (cons (add1 depth) depth))
+                                     (side (cons width (add1 width))))]
+                          [attach-box (side (attach-boxes pict))]
+                          [attach-offset (attach-box-offset pict attach-box)]
+                          [spaced-append (side spaced-append-fcns)]
+                          [part-center (side part-centers)]
+                          [inset (side inset-fcns)])
+                     (arrow
+                      ;; the pict that the arrows go on
+                      (spaced-append
+                       (inset base (- attach-offset part-center))
+                       (inset pict (- part-center attach-offset)))
+                      ;; from
+                      (side parts)
+                      ;; to
+                      attach-box))))
+
+             (sequence pict
+                       (make-attach-boxes! cell-body
+                                           (car part-centers)
+                                           (cdr part-centers))
+                       (add-from-rec pict car)
+                       (add-from-rec pict cdr)
+                       (hash-set! attach-box-tbl pict
+                                  (hash-ref attach-box-tbl cell-body)))))]
       [(pict-convertible? obj)
-       (let* ([padded (inset obj object-padding)]
-              [car-attach (blank (/ (pict-width padded) 2) 0)]
-              [cdr-attach (blank 0 (/ (pict-height padded) 2))])
-         (values (vl-append car-attach
-                            (ht-append cdr-attach padded))
-                 car-attach cdr-attach))]
+       (sequence pict
+                 (inset obj object-padding)
+                 (make-attach-boxes! pict
+                                     (/ (pict-width pict) 2)
+                                     (/ (pict-height pict) 2)))]
       [else (rec (typeset-code (datum->syntax #f obj)) 0 0)]))
-  (let-values ([(pict _1 _2) (rec (if (syntax? obj)
-                                      (syntax->datum obj)
-                                      obj)
-                                  0 0)])
-    pict))
+  (rec (if (syntax? obj)
+           (syntax->datum obj)
+           obj) 0 0))
