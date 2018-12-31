@@ -12,6 +12,7 @@
 (require racket/list)
 (require racket/contract)
 (require racket/function)
+(require racket/match)
 (require pict)
 (require pict/code)
 (require pict/convert)
@@ -31,6 +32,16 @@
 
 (define default-etc-pict (text "etc."))
 (define default-null-pict (typeset-code #'()))
+(define (default-reference-label label)
+  (sequence pict
+            (inset (white (text label '(bold . modern)))
+                   2)
+            (cc-superimpose (filled-rectangle
+                             (pict-width pict)
+                             (pict-height pict)
+                             #:color "Black"
+                             #:draw-border? #f)
+                            pict)))
 
 (define/contract (sdraw obj
                         #:cell-border-color [cell-border-color "Black"]
@@ -50,7 +61,9 @@
                         #:null-style [null-style default-null-pict]
                         #:null-thickness [null-thickness 2.5]
                         #:max-depth [max-depth +inf.0]
-                        #:max-width [max-width +inf.0])
+                        #:max-width [max-width +inf.0]
+                        #:reference-label
+                        [reference-label default-reference-label])
   (->* (any/c)
        (#:cell-border-color color/c
         #:cell-inside-color color/c
@@ -124,89 +137,122 @@
     (cons (curry vl-append vertical-spacing)
           (curry ht-append horizontal-spacing)))
 
-  (define (rec obj depth width)
+  (define labels (make-hasheq))
+  (define current-label 0)
+
+  (define (rec obj [depth 0] [width 0] [leftmost #t])
     (cond
       [(null? obj)
        ;; in the case of (sdraw '() #:null-style '/), or similar
        (rec (if (pict-convertible? null-style)
                 null-style
-                default-null-pict)
-            0 0)]
+                default-null-pict))]
       [(pair? obj)
-       (if (or (> depth max-depth)
-               (> width max-width))
-           ;; show etc-pict in the case of maxed width/depth
-           (rec etc-pict 0 0)
+       (cond
+         [(hash-has-key? labels obj)
+          (let draw-label ()
+            (match (hash-ref labels obj)
+              [(list-rest #f tail)
+               (hash-set! labels obj (cons current-label tail))
+               (set! current-label (add1 current-label))
+               (draw-label)]
+              [(list label leftmost body)
+               (rec (reference-label (format "#~A#" label)))]))]
+         [(or (> depth max-depth)
+              (> width max-width))
+          (rec etc-pict 0 0)]
+         [else
+          (let* ([parts (cons (cons-part) (cons-part))]
+                 [cell-inner (hc-append cell-border-width
+                                        (car parts) (cdr parts))]
+                 [cell-body (cc-superimpose
+                             (scale-to-fit
+                              (filled-rounded-rectangle
+                               (pict-width cell-inner)
+                               (pict-height cell-inner)
+                               cell-border-radius
+                               #:draw-border? #f
+                               #:color cell-border-color)
+                              (+ (pict-width cell-inner)
+                                 (* 2 cell-border-width))
+                              (+ (pict-height cell-inner)
+                                 (* 2 cell-border-width))
+                              #:mode 'distort)
+                             cell-inner)]
+                 [part-centers (let-values
+                                   ([(x y) (cc-find cell-body (car parts))])
+                                 (cons x y))])
+            (hash-set! labels obj (list #f leftmost cell-body))
 
-           (let* ([parts (cons (cons-part) (cons-part))]
-                  [cell-inner (hc-append cell-border-width
-                                         (car parts) (cdr parts))]
-                  [cell-body (cc-superimpose
-                              (scale-to-fit
-                               (filled-rounded-rectangle
-                                (pict-width cell-inner)
-                                (pict-height cell-inner)
-                                cell-border-radius
-                                #:draw-border? #f
-                                #:color cell-border-color)
-                               (+ (pict-width cell-inner)
-                                  (* 2 cell-border-width))
-                               (+ (pict-height cell-inner)
-                                  (* 2 cell-border-width))
-                               #:mode 'distort)
-                              cell-inner)]
-                  [part-centers (let-values
-                                    ([(x y) (cc-find cell-body (car parts))])
-                                  (cons x y))])
+            (define (add-from-rec base side)
+              (if (and (not (pict-convertible? null-style))
+                       (null? (side obj)))
+                  (let ([part (side parts)])
+                    (sequence base
+                              (when (memq null-style '(/ x))
+                                (pin-line base
+                                          part lb-find
+                                          part rt-find
+                                          #:line-width null-thickness))
+                              (when (memq null-style '(|\| x))
+                                (pin-line base
+                                          part lt-find
+                                          part rb-find
+                                          #:line-width null-thickness))))
+                  (let* ([pict (rec (side obj)
+                                    (side (cons (add1 depth) depth))
+                                    (side (cons width (add1 width)))
+                                    (side (cons #t #f)))]
+                         [attach-box (side (attach-boxes pict))]
+                         [attach-offset (attach-box-offset pict attach-box)]
+                         [spaced-append (side spaced-append-fcns)]
+                         [part-center (side part-centers)]
+                         [inset (side inset-fcns)])
+                    (arrow
+                     ;; the pict that the arrows go on
+                     (spaced-append
+                      (inset base (- attach-offset part-center))
+                      (inset pict (- part-center attach-offset)))
+                     ;; from
+                     (side parts)
+                     ;; to
+                     attach-box))))
 
-             (define (add-from-rec base side)
-               (if (and (not (pict-convertible? null-style))
-                        (null? (side obj)))
-                   (let ([part (side parts)])
-                     (sequence base
-                               (when (member null-style '(/ x))
-                                 (pin-line base
-                                           part lb-find
-                                           part rt-find
-                                           #:line-width null-thickness))
-                               (when (member null-style '(|\| x))
-                                 (pin-line base
-                                           part lt-find
-                                           part rb-find
-                                           #:line-width null-thickness))))
-                   (let* ([pict (rec (side obj)
-                                     (side (cons (add1 depth) depth))
-                                     (side (cons width (add1 width))))]
-                          [attach-box (side (attach-boxes pict))]
-                          [attach-offset (attach-box-offset pict attach-box)]
-                          [spaced-append (side spaced-append-fcns)]
-                          [part-center (side part-centers)]
-                          [inset (side inset-fcns)])
-                     (arrow
-                      ;; the pict that the arrows go on
-                      (spaced-append
-                       (inset base (- attach-offset part-center))
-                       (inset pict (- part-center attach-offset)))
-                      ;; from
-                      (side parts)
-                      ;; to
-                      attach-box))))
-
-             (sequence pict
-                       (make-attach-boxes! cell-body
-                                           (car part-centers)
-                                           (cdr part-centers))
-                       (add-from-rec pict car)
-                       (add-from-rec pict cdr)
-                       (hash-set! attach-box-tbl pict
-                                  (hash-ref attach-box-tbl cell-body)))))]
+            (sequence pict
+                      (make-attach-boxes! cell-body
+                                          (car part-centers)
+                                          (cdr part-centers))
+                      (add-from-rec pict car)
+                      (add-from-rec pict cdr)
+                      (hash-set! attach-box-tbl pict
+                                 (hash-ref attach-box-tbl cell-body))))])]
       [(pict-convertible? obj)
        (sequence pict
                  (inset obj object-padding)
                  (make-attach-boxes! pict
                                      (/ (pict-width pict) 2)
                                      (/ (pict-height pict) 2)))]
-      [else (rec (typeset-code (datum->syntax #f obj)) 0 0)]))
-  (rec (if (syntax? obj)
-           (syntax->datum obj)
-           obj) 0 0))
+      [else (rec (typeset-code (datum->syntax #f obj)))]))
+
+  (panorama
+   (let next-label ([pict (rec (if (syntax? obj)
+                                   (syntax->datum obj)
+                                   obj))]
+                    [hash-idx (hash-iterate-first labels)])
+     (if hash-idx
+         (next-label
+          (match (hash-iterate-value labels hash-idx)
+            [(list #f _ _) pict]
+            [(list label #f body)
+             (pin-under pict
+                        body cb-find
+                        (reference-label (format "#~A=" label)))]
+            [(list label #t body)
+             (pin-under pict
+                        body lt-find
+                        (refocus
+                         (hc-append (reference-label (format "#~A=" label))
+                                    body)
+                         body))])
+          (hash-iterate-next labels hash-idx))
+         pict))))
