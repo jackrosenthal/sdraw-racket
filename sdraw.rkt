@@ -129,10 +129,6 @@
   (define (attach-boxes pict)
     (hash-ref attach-box-tbl pict))
 
-  (define (attach-box-offset pict attach-pict)
-    (let-values ([(x y) (rb-find pict attach-pict)])
-      (max x y)))
-
   (define spaced-append-fcns
     (cons (curry vl-append vertical-spacing)
           (curry ht-append horizontal-spacing)))
@@ -204,15 +200,16 @@
                                     (side (cons width (add1 width)))
                                     (side (cons #t #f)))]
                          [attach-box (side (attach-boxes pict))]
-                         [attach-offset (attach-box-offset pict attach-box)]
+                         [offset (let-values ([(x y) (rb-find pict attach-box)])
+                                   (side (cons x y)))]
                          [spaced-append (side spaced-append-fcns)]
                          [part-center (side part-centers)]
                          [inset (side inset-fcns)])
                     (arrow
                      ;; the pict that the arrows go on
                      (spaced-append
-                      (inset base (- attach-offset part-center))
-                      (inset pict (- part-center attach-offset)))
+                      (inset base (- offset part-center))
+                      (inset pict (- part-center offset)))
                      ;; from
                      (side parts)
                      ;; to
