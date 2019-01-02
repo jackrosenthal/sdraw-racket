@@ -1,5 +1,5 @@
 #lang scribble/manual
-@(require racket/sandbox scribble/example sdraw
+@(require scribble/example sdraw
           (for-label sdraw racket pict pict/color pict/convert pict/code
                      pict/face))
 @(define eval (make-base-eval))
@@ -11,9 +11,6 @@
 @author[(author+email "Jack Rosenthal" "jack@rosenth.al")]
 
 @defmodule[sdraw]
-
-@;@examples[#:eval evaluator
-@;          (sdraw '(1 2 3))]
 
 @deftech{Cons-cell diagrams} (also called @deftech{box-and-pointer
 diagrams}) are often used to visually depict
@@ -69,7 +66,7 @@ There is only one function provided by sdraw:
             pict?]{
     Draws a cons-cell diagram of @racket[obj]. @racket[obj] can either be a
     @datum or a @elem[syntax]. If a @syntax is given, it will be
-    converted to a @datum using @racket[syntax->dautm].
+    converted to a @datum using @racket[syntax->datum].
 
     Pairs are drawn as a box, with arrows going down and right for the
     @racket[car] and @racket[cdr] respectively. If a @racket[pict-convertible?]
@@ -156,4 +153,18 @@ There is only one function provided by sdraw:
             (sdraw '(+ (* 2 3) 4) #:arrow-color "Purple"
                                   #:arrow-thickness 1
                                   #:arrow-head-size 5
-                                  #:arrow-point-size 10)]}]}
+                                  #:arrow-point-size 10)]}
+
+        @item{@bold{Reference labels style:} Customization of labels
+          for circular and graph-like structures can be done by passing
+          a function which takes a @racket[string?] and produces a
+          @racket[pict-convertible?] for @racket[reference-label]. By
+          default, a simple black label with white text is used:
+
+          @examples[#:eval eval
+            (require racket)
+            (sdraw (with-input-from-string "#0=(#0# #1=(#0# . #1#) #1#)"
+                                           read))
+            (sdraw (with-input-from-string "#0=(#0# #1=(#0# . #1#) #1#)"
+                                           read)
+                   #:reference-label text)]}]}
