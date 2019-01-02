@@ -82,7 +82,8 @@
         #:null-style (or/c pict-convertible? '/ '|\| 'x)
         #:null-thickness real?
         #:max-depth (or/c +inf.0 natural-number/c)
-        #:max-width (or/c +inf.0 natural-number/c))
+        #:max-width (or/c +inf.0 natural-number/c)
+        #:reference-label (-> string? pict-convertible?))
        pict?)
 
   (define (cons-part)
