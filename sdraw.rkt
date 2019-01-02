@@ -86,6 +86,20 @@
         #:reference-label (-> string? pict-convertible?))
        pict?)
 
+  (define (adjust-for-radius finder)
+    (define (towards ctr here amt)
+      (if (> ctr here)
+          (+ here amt)
+          (- here amt)))
+    (let* ([r cell-inside-radius]
+           [amt (/ (* r (sqrt (- 3 (expt 2 (/ 3 2)))))
+                   (sqrt 2))])
+      (λ (pict f)
+        (let-values ([(cx cy) (cc-find pict f)]
+                     [(x y) (finder pict f)])
+          (values (towards cx x amt)
+                  (towards cy y amt))))))
+
   (define (cons-part)
     (filled-rounded-rectangle cell-inside-size cell-inside-size
                               cell-inside-radius
@@ -155,8 +169,8 @@
                (draw-label)]
               [(list label leftmost body)
                (rec (reference-label (format "#~A#" label)))]))]
-         [(or (> depth max-depth)
-              (> width max-width))
+         [(or (>= depth max-depth)
+              (>= width max-width))
           (rec etc-pict 0 0)]
          [else
           (let* ([parts (cons (cons-part) (cons-part))]
@@ -184,18 +198,18 @@
             (define (add-from-rec base side)
               (if (and (not (pict-convertible? null-style))
                        (null? (side obj)))
-                  (let ([part (side parts)])
+                  (let* ([part (side parts)]
+                         [line (λ (base startf endf)
+                                 (pin-line base
+                                           part (adjust-for-radius startf)
+                                           part (adjust-for-radius endf)
+                                           #:line-width null-thickness
+                                           #:color cell-border-color))])
                     (sequence base
                               (when (memq null-style '(/ x))
-                                (pin-line base
-                                          part lb-find
-                                          part rt-find
-                                          #:line-width null-thickness))
+                                (line base lb-find rt-find))
                               (when (memq null-style '(|\| x))
-                                (pin-line base
-                                          part lt-find
-                                          part rb-find
-                                          #:line-width null-thickness))))
+                                (line base lt-find rb-find))))
                   (let* ([pict (rec (side obj)
                                     (side (cons (add1 depth) depth))
                                     (side (cons width (add1 width)))
